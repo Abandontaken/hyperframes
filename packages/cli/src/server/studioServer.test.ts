@@ -22,6 +22,7 @@ import {
   fileContentVersion,
   HistoryBusyError,
   HistoryClosedError,
+  RANGE_NOT_RENDERED,
 } from "@hyperframes/studio-server";
 import { thumbnailSeekReadyInBrowser } from "@hyperframes/studio-server/screenshot-clip";
 import { loadHyperframeRuntimeSource } from "@hyperframes/core";
@@ -292,7 +293,11 @@ describe("createStudioServer project history (D-491)", () => {
 
   it("waits for the history lock again once a history opened after a busy one", async () => {
     const waits: unknown[] = [];
-    const reopenable = { replacedAtPath: () => true, close: async () => {} };
+    const reopenable = {
+      replacedAtPath: () => true,
+      replacedNow: async () => true,
+      close: async () => {},
+    };
     let opens = 0;
     historyState.open = async (options) => {
       waits.push((options as { ownerWaitMs?: number }).ownerWaitMs);
@@ -584,6 +589,22 @@ describe("createStudioServer shutdown", () => {
 
     releaseFirstRender();
     await shutdownPromise;
+  });
+
+  it("fails a job that asks for a part of the film instead of rendering it whole", async () => {
+    let executed = false;
+    producerState.executeRenderJob = async () => {
+      executed = true;
+    };
+    server = createStudioServer({ projectDir: tmpProject() });
+    const job = server.adapter.startRender({
+      ...startRenderOpts("job-range", join(tmpdir(), "part.mp4")),
+      range: { startSeconds: 2, endSeconds: 4 },
+    });
+
+    expect(job.status).toBe("failed");
+    expect(job.error).toBe(RANGE_NOT_RENDERED);
+    expect(executed).toBe(false);
   });
 
   const thumbnailOpts = () => ({
